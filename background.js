@@ -1,9 +1,16 @@
-// @Date    : 2020-09-12 16:26:48
-// @Author  : residuallaugh
+/**
+ * 24-09-18
+ * 处理目标信息
+ */
+
 var js = [];
 var search_data = {};
+
+// 静态资源
 var static_file = ['.jpg','.png','.gif','.css','.svg','.ico','.js'];
+// 单独列出来一个 .jsp
 var non_static_file = ['.jsp']
+// 预计提取并展示的信息
 var key = ["ip","ip_port","domain","path","incomplete_path","url","sfz","mobile","mail","jwt","algorithm","secret"];
 var not_sub_key = ["secret"];
 var nuclei_regex = [
@@ -738,12 +745,17 @@ var nuclei_regex = [
 var tab_url = {};
 var selected_id = -1;
 
+// 
 function get_js(){
 	return js;
 }
+
+// 
 function add_js(js_name) {
 	js.push(js_name);
 }
+
+// 
 function unique(arr1){
   if(arr1 == 'null'){
     return null;
@@ -762,7 +774,8 @@ function unique(arr1){
   // }
   return arr2
 }
-//查找search_data中是否已经存在了，如果已存在则不返回
+
+// 查找 search_data中 是否已经存在了，如果已存在则不返回
 function find(arr1,arr2) {
   var arr3 = []
   arr1.forEach(function (item,index,array) {
@@ -772,7 +785,8 @@ function find(arr1,arr2) {
   })
   return arr3
 }
-//去重合并两个数组 并集
+
+// 去重合并两个数组 并集
 function add(arr1,arr2) {
   if(!arr1){
     return arr2
@@ -788,7 +802,7 @@ function add(arr1,arr2) {
   return arr2
 }
 
-//交集
+// 交集
 function jiaoji(arr1,arr2) {
   var arr3 = [];
   arr1.forEach(function (item,index,array) {
@@ -799,7 +813,7 @@ function jiaoji(arr1,arr2) {
   return arr3
 }
 
-
+// 从 arr1 中收集静态文件并添加到 arr2
 function collect_static(arr1,arr2) {
   var arr3 = arr1.slice(0,arr1.length);
   arr1.forEach(function (item,index,array) {
@@ -818,6 +832,7 @@ function collect_static(arr1,arr2) {
   return {'arr1':arr3,'static':arr2}
 }
 
+// 处理一个字符串数组 arr1，去掉每个字符串开头和结尾的引号（单引号或双引号），并返回一个新的数组 arr3
 function sub_1(arr1) {
   var arr3 = []
   arr1.forEach(function (item,index,array) {
@@ -834,7 +849,8 @@ function sub_1(arr1) {
   return arr3
 }
 
-// 提取js中的敏感信息，使用nuclei的正则
+// 提取 js 中的敏感信息，使用 nuclei 的正则
+// https://github.com/projectdiscovery/nuclei
 function get_secret(data) {
     // console.log("get_secret");
     // console.time();
@@ -854,10 +870,12 @@ function get_secret(data) {
     return result;
 }
 
-// 数据提取放到background里，避免前端加载时阻塞。
+// 输入的字符串 data 中提取各种信息，包括身份证号、手机号码、邮箱、IP 地址、域名、路径、URL、JWT 和加密算法
+// 数据提取放到background里，避免前端加载时阻塞
 function extract_info(data) {
   // console.log('extraInfo');
   var extract_data = {}
+  // 大量的正则匹配信息
   extract_data['sfz'] = data.match(/['"]((\d{8}(0\d|10|11|12)([0-2]\d|30|31)\d{3}$)|(\d{6}(18|19|20)\d{2}(0[1-9]|10|11|12)([0-2]\d|30|31)\d{3}(\d|X|x)))['"]/g);
   extract_data['mobile'] = data.match(/['"](1(3([0-35-9]\d|4[1-8])|4[14-9]\d|5([\d]\d|7[1-79])|66\d|7[2-35-8]\d|8\d{2}|9[89]\d)\d{7})['"]/g);
   extract_data['mail'] = data.match(/['"][a-zA-Z0-9\._\-]*@[a-zA-Z0-9\._\-]{1,63}\.((?!js|css|jpg|jpeg|png|ico)[a-zA-Z]{2,})['"]/g);
@@ -881,57 +899,84 @@ function extract_info(data) {
   return extract_data;
 }
 
+// 设置点基本信息，webhook() 中使用
 var myHeaders = new Headers();
 myHeaders.append('accept', '*/*');
 
+// 将提取到的数据通过 webhook 发送到指定的 URL
 function webhook(data) {
-    // console.log(search_data[data]);
-    data = JSON.stringify(search_data[data]);
-    // console.log(data);
-    chrome.storage.local.get(["webhook_setting"], function(settings){
-        if(!settings || !settings["webhook_setting"] || settings["webhook_setting"] == {} || settings["webhook_setting"] ==undefined){
-            // console.log('获取webhook_setting失败');
-            return;
-        }
-        
-        let webhookInit = {
-            method: 'GET',
-            headers: myHeaders,
-            mode: 'cors',
-            cache: 'default',
-            credentials: 'include'
-        };
-        let webhookHeaders = new Headers();
-        if (settings["webhook_setting"]['url']!="") {
-            var url = settings["webhook_setting"]['url'];
-            if (settings["webhook_setting"]['method']=="GET"){
-                url = url + "?" +  settings["webhook_setting"]['arg'] + "=" + data;
-            }else if (settings["webhook_setting"]['method']=="POST"){
-                webhookHeaders.append("Content-Type", "application/json");
-                webhookInit['method'] = "POST";
-                if (settings["webhook_setting"]['arg']!=""){
-                    webhookInit['body'] = settings["webhook_setting"]['arg'] + "=" + data
-                }else{
-                    webhookInit['body'] = data;
-                }
-            }else{
-                console.log("webhook method error:"+settings["webhook_setting"]['method']);
-            }
-            if (settings["webhook_setting"]['headers']!={}){
-                for (let i in settings["webhook_setting"]['headers']) {
-                    webhookHeaders.append(i,settings["webhook_setting"]['headers'][i]);
-                }
-            }
-            webhookInit["headers"] = webhookHeaders;
-            let webhookRequest = new Request(url, webhookInit);
-            // console.log(webhookRequest);
-            fetch(webhookRequest, webhookInit).then(function(response) {
-                // console.log(response);
-            }).catch(err=>{ console.log("webhook fetch error",err)});
-        }
-    });
+  // 将 search_data 中对应 data 的内容转换为 JSON 字符串
+  data = JSON.stringify(search_data[data]);
+
+  // 从 local storage 中提取 webhook 设置
+  chrome.storage.local.get(["webhook_setting"], function(settings){
+      // 检查设置是否存在或有效
+      if(!settings || !settings["webhook_setting"] || settings["webhook_setting"] == {} || settings["webhook_setting"] == undefined){
+          // 如果获取 webhook 设置失败，则返回
+          return;
+      }
+      
+      // 初始化 webhook 请求的配置
+      let webhookInit = {
+          method: 'GET', // 默认请求方法为 GET
+          headers: myHeaders, // 使用预定义的请求头
+          mode: 'cors', // 设置跨域请求模式
+          cache: 'default', // 默认缓存策略
+          credentials: 'include' // 包含凭据
+      };
+      
+      // 创建一个新的 Headers 对象用于存储自定义请求头
+      let webhookHeaders = new Headers();
+      
+      // 检查 webhook 设置中的 URL 是否不为空
+      if (settings["webhook_setting"]['url'] != "") {
+          var url = settings["webhook_setting"]['url']; // 获取 webhook URL
+          
+          // 根据设置的请求方法进行处理
+          if (settings["webhook_setting"]['method'] == "GET") {
+              // 如果是 GET 方法，将数据作为查询参数附加到 URL
+              url = url + "?" + settings["webhook_setting"]['arg'] + "=" + data;
+          } else if (settings["webhook_setting"]['method'] == "POST") {
+              // 如果是 POST 方法，设置请求头的内容类型
+              webhookHeaders.append("Content-Type", "application/json");
+              webhookInit['method'] = "POST"; // 更新请求方法为 POST
+              
+              // 根据设置的参数构建请求体
+              if (settings["webhook_setting"]['arg'] != "") {
+                  webhookInit['body'] = settings["webhook_setting"]['arg'] + "=" + data;
+              } else {
+                  webhookInit['body'] = data; // 直接使用数据作为请求体
+              }
+          } else {
+              // 如果请求方法不在预期范围内，输出错误信息
+              console.log("webhook method error:" + settings["webhook_setting"]['method']);
+          }
+          
+          // 检查是否有自定义请求头
+          if (settings["webhook_setting"]['headers'] != {}) {
+              // 遍历自定义请求头并添加到 Headers 对象中
+              for (let i in settings["webhook_setting"]['headers']) {
+                  webhookHeaders.append(i, settings["webhook_setting"]['headers'][i]);
+              }
+          }
+          
+          // 将自定义请求头添加到请求配置中
+          webhookInit["headers"] = webhookHeaders;
+          // 创建一个新的请求对象
+          let webhookRequest = new Request(url, webhookInit);
+          
+          // 发送 fetch 请求
+          fetch(webhookRequest, webhookInit).then(function(response) {
+              // 处理响应（此处可以添加响应处理逻辑）
+          }).catch(err => {
+              // 捕获并输出请求错误
+              console.log("webhook fetch error", err);
+          });
+      }
+  });
 }
 
+// 更新当前任务的计数，并在任务完成时触发 webhook
 function refresh_count() {
   const cur = tab_url[selected_id];
   let cnt = 0;
@@ -950,9 +995,7 @@ function refresh_count() {
     refresh_storage_expire_index(cur)
     webhook(cur);
   }
-
 }
-
 function refresh_storage_expire_index(cur) {
   console.log("refresh_storage_expire_index:"+cur)
   chrome.storage.local.get(["expire_index"], function(expire_index){
@@ -967,173 +1010,216 @@ function refresh_storage_expire_index(cur) {
   })
 }
 
-function persist_tmp_data(tmp_data, req_url, current) {
-    //遍历所有数据类型
-    for (var i = 0; i < key.length; i++) {
-        //如果传入的数据没有这个类型，就看下一个
-        if (tmp_data[key[i]] == null){
-          continue;
-        }
-        // 把前端的处理放到这里避免重复
-        if (not_sub_key.indexOf(key[i])<0){
-          tmp_data[key[i]] = sub_1(tmp_data[key[i]])
-        }
-        tmp_data[key[i]].map((item)=>{
-            search_data[tmp_data['current']]['source'][item] = req_url
-        })
-        //如果search_data有历史数据，进行检查--20230625 这里没看懂，先注释看看
-        // console.log(tmp_data[key[i]])
-        // if (tmp_data['current'] in search_data){
-        //   for (var j = 0; j < key.length; j++) {
-        //     if (search_data[tmp_data['current']][key[j]]!=null){
-        //       tmp_data[key[i]] = jiaoji(unique(tmp_data[key[i]]),find(unique(tmp_data[key[i]]),search_data[tmp_data['current']][key[j]]))
-        //     }
-        //     // console.log(tmp_data[key[i]], search_data[tmp_data['current']][key[j]])
-        //   }
-        // }
-        // console.log(tmp_data[key[i]])
-        if (tmp_data['current'] in search_data && search_data[tmp_data['current']][key[i]]!=null ){
-          var search_data_value = unique(add(search_data[tmp_data['current']][key[i]],tmp_data[key[i]])).sort()
-          if ('static' in search_data[tmp_data['current']]){
-            var res = collect_static(search_data_value,search_data[tmp_data['current']]['static'])
-          }else{
-            var res = collect_static(search_data_value,[])
-          }
-          search_data[tmp_data['current']][key[i]] = res['arr1']
-          search_data[tmp_data['current']]['static'] = res['static']
-        }else{
-          var search_data_value = unique(tmp_data[key[i]]).sort()
-          if ('static' in search_data[tmp_data['current']]){
-            var res = collect_static(search_data_value,search_data[tmp_data['current']]['static'])
-          }else{
-            var res = collect_static(search_data_value,[])
-          }
-          search_data[tmp_data['current']]['static'] = unique(res['static'])
-          search_data[tmp_data['current']][key[i]] = unique(res['arr1'])
-        }
-    }
 
+// 持久化临时数据到 search_data 中
+function persist_tmp_data(tmp_data, req_url, current) {
+  // 遍历所有数据类型
+  for (var i = 0; i < key.length; i++) {
+      // 如果传入的数据没有这个类型，就跳过
+      if (tmp_data[key[i]] == null) {
+          continue; // 继续下一个循环
+      }
+      
+      // 如果当前数据类型不在不处理的子键列表中，则进行处理
+      if (not_sub_key.indexOf(key[i]) < 0) {
+          // 调用 sub_1 函数处理数据，去掉开头和结尾的引号
+          tmp_data[key[i]] = sub_1(tmp_data[key[i]]);
+      }
+      
+      // 将处理后的数据项映射到 search_data 的 source 中
+      tmp_data[key[i]].map((item) => {
+          search_data[tmp_data['current']]['source'][item] = req_url; // 记录数据来源
+      });
+
+      // 检查 search_data 中是否已有历史数据
+      if (tmp_data['current'] in search_data && search_data[tmp_data['current']][key[i]] != null) {
+          // 合并当前数据和历史数据，并去重
+          var search_data_value = unique(add(search_data[tmp_data['current']][key[i]], tmp_data[key[i]])).sort();
+          
+          // 检查是否存在静态文件数据
+          if ('static' in search_data[tmp_data['current']]) {
+              // 调用 collect_static 函数处理静态文件
+              var res = collect_static(search_data_value, search_data[tmp_data['current']]['static']);
+          } else {
+              // 如果没有静态文件数据，则直接处理
+              var res = collect_static(search_data_value, []);
+          }
+          
+          // 更新 search_data 中的当前数据和静态文件
+          search_data[tmp_data['current']][key[i]] = res['arr1']; // 更新当前数据
+          search_data[tmp_data['current']]['static'] = res['static']; // 更新静态文件
+      } else {
+          // 如果没有历史数据，则直接处理当前数据
+          var search_data_value = unique(tmp_data[key[i]]).sort();
+          
+          // 检查是否存在静态文件数据
+          if ('static' in search_data[tmp_data['current']]) {
+              // 调用 collect_static 函数处理静态文件
+              var res = collect_static(search_data_value, search_data[tmp_data['current']]['static']);
+          } else {
+              // 如果没有静态文件数据，则直接处理
+              var res = collect_static(search_data_value, []);
+          }
+          
+          // 更新 search_data 中的静态文件和当前数据
+          search_data[tmp_data['current']]['static'] = unique(res['static']); // 更新静态文件
+          search_data[tmp_data['current']][key[i]] = unique(res['arr1']); // 更新当前数据
+      }
+  }
 }
 
+
+
+// 监听来自其他部分的消息
 chrome.runtime.onMessage.addListener(
   function(request, sender, sendResponse) {
+    // 创建一个 AbortController 实例，用于控制 fetch 请求的取消
     var abort_controller = new AbortController();
+    // 创建一个新的 Headers 对象
     var myHeaders = new Headers();
-    myHeaders.append('accept', '*/*');
-    var myInit = { method: 'GET',
-                   headers: myHeaders,
-                   mode: 'cors',
-                   cache: 'default',
-                   credentials: 'include',
-                   signal: abort_controller.signal
+    myHeaders.append('accept', '*/*'); // 设置请求头，接受所有类型的响应
+    // 初始化 fetch 请求的配置
+    var myInit = { 
+      method: 'GET', // 默认请求方法为 GET
+      headers: myHeaders, // 使用自定义请求头
+      mode: 'cors', // 设置跨域请求模式
+      cache: 'default', // 默认缓存策略
+      credentials: 'include', // 包含凭据
+      signal: abort_controller.signal // 关联 AbortController 的信号
     };
-    if (request.greeting == "find"){
-        // console.log(request.data);
-        if(request.current in search_data){
+
+    // 检查请求的类型
+    if (request.greeting == "find") {
+        // 如果当前请求的 current 在 search_data 中
+        if (request.current in search_data) {
+            // 重置当前任务的状态
             search_data[request.current]['done'] = '';
             search_data[request.current]['tasklist'] = [];
             search_data[request.current]['donetasklist'] = [];
-        }else{
-            search_data[request.current] = {'current':request.current, 'tasklist': [], 'donetasklist': [], 'source': {}};
+        } else {
+            // 如果没有历史数据，初始化当前任务的数据结构
+            search_data[request.current] = {
+                'current': request.current, 
+                'tasklist': [], 
+                'donetasklist': [], 
+                'source': {}
+            };
         }
-        let tmp_data = extract_info(request.source);
-        tmp_data['current'] = request.current;
-        tmp_data['static'] = null;
-        console.log(tmp_data)
-        persist_tmp_data(tmp_data, request.current, request.current);
-        chrome.storage.local.set({["findsomething_result_"+request.current]: search_data[request.current]}, function(){});
-        tab_url[sender.tab.id] = request.current;
-        refresh_count();
-        let promiseTask = [];
-        search_data[request.current]['pretasknum'] = request.data.length
-        request.data.map((req_url)=>{
-            try{
-                search_data[request.current]['tasklist'].push(0);
-                if(req_url==request.current){
-                    search_data[request.current]['donetasklist'].push(0);
-                    return
-                }
-                var myRequest = new Request(req_url, myInit);
-                let p = fetch(myRequest,myInit).then(function(response) {
-                    // search_data[request.current]['tasklist'].push(0);
-                    // console.log(response);
-                    response.text().then(function(text) {
-                    // console.log(text);
-                    let tmp_data=text;
-                    tmp_data = extract_info(tmp_data);
-                    tmp_data['current'] = request.current;
-                    persist_tmp_data(tmp_data, req_url, request.current);
-                    search_data[request.current]['donetasklist'].push(0);
-                    chrome.storage.local.set({["findsomething_result_"+request.current]: search_data[request.current]}, function(){});
-                    tab_url[sender.tab.id] = request.current;
-                    refresh_count();
 
-                    });
-                }).catch(err=>{
-                    console.log("fetch error",err);
+        // 提取信息并存储到 tmp_data 中
+        let tmp_data = extract_info(request.source);
+        tmp_data['current'] = request.current; // 设置当前任务
+        tmp_data['static'] = null; // 初始化静态数据
+        console.log(tmp_data); // 输出临时数据
+
+        // 持久化临时数据
+        persist_tmp_data(tmp_data, request.current, request.current);
+        // 将结果存储到 Chrome 的本地存储中
+        chrome.storage.local.set({["findsomething_result_" + request.current]: search_data[request.current]}, function(){});
+        // 更新当前标签页的 URL
+        tab_url[sender.tab.id] = request.current;
+        // 刷新任务计数
+        refresh_count();
+
+        // 初始化一个 Promise 数组，用于存储所有的 fetch 请求
+        let promiseTask = [];
+        search_data[request.current]['pretasknum'] = request.data.length; // 记录预期任务数量
+
+        // 遍历请求的 URL 列表
+        request.data.map((req_url) => {
+            try {
+                // 将任务添加到任务列表中
+                search_data[request.current]['tasklist'].push(0);
+                // 如果请求的 URL 与当前任务相同，跳过处理
+                if (req_url == request.current) {
                     search_data[request.current]['donetasklist'].push(0);
-                    refresh_count();
-                    chrome.storage.local.set({["findsomething_result_"+request.current]: search_data[request.current]}, function(){});
+                    return;
+                }
+                // 创建一个新的请求对象
+                var myRequest = new Request(req_url, myInit);
+                // 发送 fetch 请求
+                let p = fetch(myRequest, myInit).then(function(response) {
+                    // 处理响应
+                    response.text().then(function(text) {
+                        let tmp_data = text; // 获取响应文本
+                        tmp_data = extract_info(tmp_data); // 提取信息
+                        tmp_data['current'] = request.current; // 设置当前任务
+                        // 持久化提取到的数据
+                        persist_tmp_data(tmp_data, req_url, request.current);
+                        search_data[request.current]['donetasklist'].push(0); // 更新已完成任务列表
+                        // 更新本地存储
+                        chrome.storage.local.set({["findsomething_result_" + request.current]: search_data[request.current]}, function(){});
+                        tab_url[sender.tab.id] = request.current; // 更新当前标签页的 URL
+                        refresh_count(); // 刷新任务计数
+                    });
+                }).catch(err => {
+                    // 捕获并处理错误
+                    console.log("fetch error", err);
+                    search_data[request.current]['donetasklist'].push(0); // 更新已完成任务列表
+                    refresh_count(); // 刷新任务计数
+                    chrome.storage.local.set({["findsomething_result_" + request.current]: search_data[request.current]}, function(){});
                 });
-                promiseTask.push(p);
-            }
-            catch (e){
-                // console.log(e);
-                search_data[request.current]['donetasklist'].push(0);
+                promiseTask.push(p); // 将 Promise 添加到数组中
+            } catch (e) {
+                // 捕获异常
+                console.log(e);
+                search_data[request.current]['donetasklist'].push(0); // 更新已完成任务列表
             }
         });
-        chrome.storage.local.get(["fetch_timeout"], function(settings){
-            if(settings["fetch_timeout"] == true){
 
+        // 获取 fetch 超时设置
+        chrome.storage.local.get(["fetch_timeout"], function(settings) {
+            if (settings["fetch_timeout"] == true) {
+                // 如果启用了超时设置
                 let abort_promise = new Promise(function(resolve, reject) {
                     setTimeout(function() {
-                        resolve(new Response("findsomething fetch timeout", {status: 504, statusText: "timeout"}) )
-                        abort_controller.abort();
-                    }, 2000);
+                        resolve(new Response("findsomething fetch timeout", {status: 504, statusText: "timeout"}));
+                        abort_controller.abort(); // 取消请求
+                    }, 2000); // 设置超时时间为 2000 毫秒
                 });
-                promiseTask.push(abort_promise)
+                promiseTask.push(abort_promise); // 将超时 Promise 添加到数组中
 
+                // 使用 Promise.race 来处理请求和超时
                 Promise.race(promiseTask).then(function() {
-                        // webhook(request.current);
-                        // search_data[request.current]['done'] = 'done';
-                        // console.log(search_data[request.current])
-                        refresh_count();
-                        chrome.storage.local.set({["findsomething_result_"+request.current]: search_data[request.current]}, function(){});
-                    }).catch(function(err) {
-                        console.log(err);
-                        abort_controller = null;
-                    });
-
-            }else{
+                    refresh_count(); // 刷新任务计数
+                    chrome.storage.local.set({["findsomething_result_" + request.current]: search_data[request.current]}, function(){});
+                }).catch(function(err) {
+                    console.log(err);
+                    abort_controller = null; // 清空 AbortController
+                });
+            } else {
+                // 如果没有启用超时设置，等待所有请求完成
                 Promise.all(promiseTask).then(function() {
-                    // webhook(request.current);
-                    // search_data[request.current]['done'] = 'done';
-                    // console.log(search_data[request.current])
-                    refresh_count();
-                    chrome.storage.local.set({["findsomething_result_"+request.current]: search_data[request.current]}, function(){});
+                    refresh_count(); // 刷新任务计数
+                    chrome.storage.local.set({["findsomething_result_" + request.current]: search_data[request.current]}, function(){});
                 });
             }
         });
-        return true;
-    }else if(request.greeting == "get"){
+        return true; // 表示异步响应
+    } else if (request.greeting == "get") {
+        // 如果请求类型为 "get"，返回当前任务的数据
         sendResponse(search_data[request.current]);
-        return true;
+        return true; // 表示异步响应
     }
 });
 
-chrome.tabs.onUpdated.addListener(function (tabId, props) {
+// 监听标签页更新事件
+chrome.tabs.onUpdated.addListener(function(tabId, props) {
+    // 如果标签页加载完成且是当前选中的标签页
     if (props.status == "complete" && tabId == selected_id)
-        refresh_count();
+        refresh_count(); // 刷新任务计数
 });
 
-chrome.tabs.onActivated.addListener(function (activeInfo) {
-    selected_id = activeInfo.tabId;
-    refresh_count();
+// 监听标签页激活事件
+chrome.tabs.onActivated.addListener(function(activeInfo) {
+    selected_id = activeInfo.tabId; // 更新当前选中的标签页 ID
+    refresh_count(); // 刷新任务计数
 });
 
-chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
-    if(tabs && tabs[0]){
-        selected_id = tabs[0].id;
-        refresh_count();
+// 查询当前窗口中激活的标签页
+chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+    if (tabs && tabs[0]) {
+        selected_id = tabs[0].id; // 更新当前选中的标签页 ID
+        refresh_count(); // 刷新任务计数
     }
 });

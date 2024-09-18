@@ -1,15 +1,25 @@
-// @Date    : 2020-09-12 16:26:48
-// @Author  : residuallaugh
+/**
+ * 24-09-18
+ * 自动插入当前浏览器正在浏览的网页，可以使用该模块篡改页面内容，控制页面的 DOM 结构，调用相关 API 或者与插件的其他模块通信
+ *  */ 
+
+// 匿名函数，在页面加载时自动执行搜集信息 hrer/src/script src，简单处理后发送到 background.js
 (function(){
+    // 获取当前页面 URL 的基本信息
     var protocol = window.location.protocol;
     var host = window.location.host;
     var domain_host = host.split(':')[0];
     var href = window.location.href;
+    
+    // 获取 HTML 文档源代码，后者更稳定全面，可防止遗漏信息
     // var source = document.getElementsByTagName('html')[0].innerHTML;
     var source = document.documentElement.outerHTML;
+    
+    // 
     init_source(source);
 
     // 获取页面中所有的 iframe 元素，执行同样的逻辑
+    // 尽可能的搜集全信息
     var iframes = document.querySelectorAll('iframe');
     iframes.forEach(function(iframe) {
         iframe.addEventListener('load', function() {
@@ -20,20 +30,27 @@
         });
     });
 
+    // 处理当前页面的 HTML 文档，获取目标信息并做简单处理
     function init_source(source) {
         var hostPath;
         var urlPath;
+        // 白名单，后面开发时要求可以实现自定义
         var urlWhiteList = ['.google.com','.amazon.com','portswigger.net'];
         var target_list = [];
-        // console.log(source)
+        
+        // 提取信息，HTML 文档中 href 属性列表，src 属性列表，外联 js 列表
         var source_href = source.match(/href=['"].*?['"]/g);
         var source_src = source.match(/src=['"].*?['"]/g);
         var script_src = source.match(/<script [^><]*?src=['"].*?['"]/g);
+
+        //从 local storage 中查询是都有白名单，有的话就扔出提示
         chrome.storage.local.get(["allowlist"], function(settings){
             // console.log(settings , settings['allowlist'])
             if(settings && settings['allowlist']){
                 urlWhiteList = settings['allowlist'];
             }
+            
+            // 根据白名单检查已有的 href 和 src 列表，剔除白名单中的元素
             for(var i = 0;i < urlWhiteList.length;i++){
                 if(host.endsWith(urlWhiteList[i]) || domain_host.endsWith(urlWhiteList[i])){
                     console.log('域名在白名单中，跳过当前页')
@@ -42,6 +59,17 @@
             }
             // target_list.push(window.location.href);
             
+            // 初步处理之前的列表
+            /**
+             * 处理效果大致如下
+                var source_href = [
+                    'href="https://example.com/page"',
+                    'href="javascript:void(0)"', // 无效链接
+                    'href="#"', // 无效链接
+                    'href="https://example.com/page4?query=1"'
+                ];
+             * 
+             */
             // console.log(source_href,source_src,script_src)
             if(source_href){
                 for(var i=0;i<source_href.length;i++){
@@ -60,6 +88,7 @@
                 }
             }
             
+            // 去重
             const tmp_target_list=[];
             for (var i = 0;i<target_list.length;i++){
                 if (tmp_target_list.indexOf(target_list[i])===-1){
@@ -67,9 +96,12 @@
                 }
             }
             tmp_target_list.pop(href)
+            
+            // 将经过处理的目标元素列表传达给 background.js
             chrome.runtime.sendMessage({greeting: "find",data: target_list, current: href, source: source});
         });
     
+        //
         function is_script(u){
             if(script_src){
                 for(var i=0;i<script_src.length;i++){
@@ -81,40 +113,74 @@
             return false
         }
 
-        function deal_url(u){
-            if(u.indexOf(".js")=='-1' && !is_script(u)){
-                return ;
-            }else if(u.substring(0,4)=="http"){
-                return u;
+        /**
+         * 处理和规范化 URL 的函数
+         * 
+         * @param {string} u - 需要处理的 URL
+         * @returns {string|undefined} - 规范化后的 URL 或 undefined（如果无效）
+         */
+        function deal_url(u) {
+            // 1. 检查是否为有效的脚本 URL
+            // 如果 URL 不包含 ".js" 并且不是脚本类型，则返回 undefined。
+            // 这是为了确保只处理有效的脚本链接，避免无效链接。
+            if (u.indexOf(".js") == -1 && !is_script(u)) {
+                return; // 返回 undefined
             }
-            else if(u.substring(0,2)=="//"){
-                return protocol+u;
+
+            // 2. 处理绝对 URL
+            // 如果 URL 以 "http" 或 "https" 开头，直接返回该 URL。
+            // 这是因为绝对 URL 已经是完整的，不需要进一步处理。
+            else if (u.substring(0, 4) == "http") {
+                return u; // 返回绝对 URL
             }
-            else if(u.substring(0,1)=='/'){
-                return protocol+'//'+host+u;
+
+            // 3. 处理协议相对 URL
+            // 如果 URL 以 "//" 开头，表示协议相对 URL，返回当前页面的协议加上该 URL。
+            // 这样可以确保 URL 在当前协议下有效。
+            else if (u.substring(0, 2) == "//") {
+                return protocol + u; // 返回协议相对 URL
             }
-            else if(u.substring(0,2)=='./'){
-                if (href.indexOf('#')>0) {
-                    tmp_href = href.substring(0,href.indexOf('#'))
-                }else{
+
+            // 4. 处理根相对 URL
+            // 如果 URL 以 "/" 开头，表示根相对 URL，返回当前页面的协议和主机名加上该 URL。
+            // 这样可以构建出完整的绝对 URL。
+            else if (u.substring(0, 1) == '/') {
+                return protocol + '//' + host + u; // 返回根相对 URL
+            }
+
+            // 5. 处理当前目录相对 URL
+            // 如果 URL 以 "./" 开头，表示当前目录相对 URL。
+            // 需要获取当前页面的 URL，去掉锚点部分（如果有），
+            // 然后返回当前 URL 的目录部分加上该 URL。
+            else if (u.substring(0, 2) == './') {
+                if (href.indexOf('#') > 0) {
+                    tmp_href = href.substring(0, href.indexOf('#'));
+                } else {
                     tmp_href = href;
                 }
-                return tmp_href.substring(0,tmp_href.lastIndexOf('/')+1)+u;
-            }else{
-                // console.log("not match prefix:"+u+",like http // / ./")
-                if (href.indexOf('#')>0) {
-                    tmp_href = href.substring(0,href.indexOf('#'))
-                }else{
+                return tmp_href.substring(0, tmp_href.lastIndexOf('/') + 1) + u; // 返回当前目录相对 URL
+            }
+
+            // 6. 处理其他相对 URL
+            // 如果 URL 既不是绝对 URL 也不是以 "//"、"/" 或 "./" 开头，
+            // 则表示它是一个相对 URL。处理方式与当前目录相对 URL 类似，
+            // 返回当前 URL 的目录部分加上该 URL。
+            else {
+                if (href.indexOf('#') > 0) {
+                    tmp_href = href.substring(0, href.indexOf('#'));
+                } else {
                     tmp_href = href;
                 }
-                return tmp_href.substring(0,tmp_href.lastIndexOf('/')+1)+u;
+                return tmp_href.substring(0, tmp_href.lastIndexOf('/') + 1) + u; // 返回其他相对 URL
             }
         }
     }
-
 })()
 
 
+/**
+ * 设置了一个全局悬浮窗，这段就是纯前端活，skip
+ */
 chrome.storage.local.get(["global_float"], function(settings){
     // console.log(settings);
     if (settings["global_float"]!=true){
@@ -297,6 +363,9 @@ chrome.storage.local.get(["global_float"], function(settings){
     }
 });
 
+/**
+ * 实现窗口的复制功能，前端活，skip 
+ */
 function init_copy() {
     var elements = document.getElementsByClassName("findsomething_copy");
     if (elements) {
@@ -319,12 +388,17 @@ setTimeout(()=>{
     init_copy();
 }, 500);
 
+/**
+ * 设置延后时间
+ */
 function sleep (time) {
   return new Promise((resolve) => setTimeout(resolve, time));
 }
 
+/**
+ * 展示信息，skip
+ */
 var key = ["ip","ip_port","domain","path","incomplete_path","url","static","sfz","mobile","mail","jwt","algorithm","secret"]
-
 function show_info(result_data) {
     if(result_data){
         for (var k in key){
@@ -340,6 +414,10 @@ function show_info(result_data) {
         }
     }
 }
+
+/**
+ * 向 background.js 发送信息获取处理后的信息
+ */
 function get_info() {
     chrome.runtime.sendMessage({greeting: "get", current: window.location.href}, function(result_data) {
         let taskstatus = document.getElementById('findsomething_taskstatus');
